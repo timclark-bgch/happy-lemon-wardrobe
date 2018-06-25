@@ -1,0 +1,21 @@
+version: 0.2
+env:
+  variables:
+    bucket: p4-eu-west-1-lambdas
+phases:
+  build:
+    commands:
+      - pip install pipenv
+      - pipenv install --three
+      - pipenv lock --requirements > reqs.txt
+      - pip install --target dist -r reqs.txt
+      - cp *.py dist
+      - cp -r storage dist
+      - aws cloudformation package
+        --template-file deployment.yml
+        --s3-prefix tc-poc
+        --s3-bucket $bucket
+        --output-template-file package.yml
+artifacts:
+  files:
+    - package.yml
