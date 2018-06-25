@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: happy lemon wardrobe - deployment pipeline
+Parameters:
+  OauthToken:
+    Type: AWS::SSM::Parameter::Value<String>
+    NoEcho: true
+    Default: /shared/pipeline/oauthtoken
+  KmsArn:
+    Description: KMS Arn of codepipeline key
+    Type: String
+  TestAccount:
+    Type: String
+  BetaAccount:
+    Type: String
+  ProdAccount:
+    Type: String
+
+Resources:
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub happy-lemon-wardrobe-${AWS::Region}
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/p4-${AWS::Region}-pipeline
+      ArtifactStore:
+        Location: !Sub p4-${AWS::Region}-pipeline
+        Type: S3
+        EncryptionKey:
+          Id: !Ref KmsArn
+          Type: KMS
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              InputArtifacts: []
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: Source
+              Configuration:
+                Owner: timclark-bgch
+                Repo: happy-lemon-wardrobe
+                Branch: master
+                OAuthToken: !Ref OauthToken
+              RunOrder: 1
+        - Name: Package
+          Actions:
+            - Name: Build
+              InputArtifacts:
+                - Name: Source
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref Build
+              OutputArtifacts:
+                - Name: Package
+              RunOrder: 1
+        - Name: Test
+          Actions:
+          - Name: CreateChangeSet
+            InputArtifacts:
+              - Name: Package
+            ActionTypeId:
+              Category: Deploy
+              Owner: AWS
+              Version: 1
+              Provider: CloudFormation
+            Configuration:
+              ActionMode: CHANGE_SET_REPLACE
+              ChangeSetName: happy-lemon-wardrobe
+              StackName: !Sub happy-lemon-wardrobe-${AWS::Region}
+              Capabilities: CAPABILITY_NAMED_IAM
+              TemplatePath: Package::package.yml
+              RoleArn: !Sub arn:aws:iam::${TestAccount}:role/p4-${AWS::Region}-deployer
+            RunOrder: 1
+            RoleArn: !Sub arn:aws:iam::${TestAccount}:role/p4-${AWS::Region}-cloudformation
+          - Name: ExecuteChangeSet
+            ActionTypeId:
+              Category: Deploy
+              Owner: AWS
+              Version: 1
+              Provider: CloudFormation
+            Configuration:
+              ActionMode: CHANGE_SET_EXECUTE
+              ChangeSetName: happy-lemon-wardrobe
+              StackName: !Sub happy-lemon-wardrobe-${AWS::Region}
+              RoleArn: !Sub arn:aws:iam::${TestAccount}:role/p4-${AWS::Region}-deployer
+            RunOrder: 2
+            RoleArn: !Sub arn:aws:iam::${TestAccount}:role/p4-${AWS::Region}-cloudformation
+
+  Build:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/python:3.6.5
+        Type: LINUX_CONTAINER
+      Name: !Sub happy-lemon-wardrobe-${AWS::Region}
+      ServiceRole: !Sub arn:aws:iam::${AWS::AccountId}:role/p4-${AWS::Region}-build
+      EncryptionKey: !Ref KmsArn
+      Source:
+        Type: CODEPIPELINE

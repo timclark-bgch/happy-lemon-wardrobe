@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Time Series Storage
+
+Parameters:
+  MasterUsername:
+    Type: AWS::SSM::Parameter::Value<String>
+    NoEcho: true
+    Default: /honeycomb/timeseries/master/user
+  MasterPassword:
+    Type: AWS::SSM::Parameter::Value<String>
+    NoEcho: true
+    Default: /honeycomb/timeseries/master/password
+
+Globals:
+  Function:
+    Runtime: python3.6
+    Tags:
+      product: honeycomb
+      owner: pt4
+      role: time-series
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+      - Key: product
+        Value: honeycomb
+      - Key: owner
+        Value: pt4
+      - Key: role
+        Value: time-series
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.0.0/25
+      AvailabilityZone: eu-west-1a
+      Tags:
+      - Key: product
+        Value: honeycomb
+      - Key: owner
+        Value: pt4
+      - Key: role
+        Value: time-series
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.0.128/25
+      AvailabilityZone: eu-west-1b
+      Tags:
+      - Key: product
+        Value: honeycomb
+      - Key: owner
+        Value: pt4
+      - Key: role
+        Value: time-series
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Time Series DB subgroup"
+      SubnetIds:
+        - !Ref SubnetA
+        - !Ref SubnetB
+      Tags:
+      - Key: product
+        Value: honeycomb
+      - Key: owner
+        Value: pt4
+      - Key: role
+        Value: time-series
+
+  Cluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterPassword
+      Engine: aurora-mysql
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBClusterParameterGroupName: !Ref ClusterParameterGroup
+
+  Instance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref Cluster
+      PubliclyAccessible: true
+      AvailabilityZone: !Ref SubnetA.AvailabilityZone
+      DBInstanceClass: db.r4.large
+
+  Instance2:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref Cluster
+      PubliclyAccessible: true
+      AvailabilityZone: !Ref SubnetB.AvailabilityZone
+      DBInstanceClass: db.r4.large
+
+  ClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Family: aurora5.6
+      Parameters:
+        time_zone: UTC
